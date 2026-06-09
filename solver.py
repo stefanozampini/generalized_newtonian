@@ -69,6 +69,8 @@ class Solver:
         self.max_steps = self.sol.get("max_steps")
         self.atol = self.sol.get("atol")
         self.direct = self.sol.get("direct")
+        self.direct_reinit = self.sol.get("direct_reinit")
+        self.direct_use_objective = self.sol.get("direct_use_objective")
         self.split = self.sol.get("split")
         self.full_step = self.sol.get("full_step")
         self.adaptive_dt = self.sol.get("adaptive_dt")
@@ -276,6 +278,7 @@ class Solver:
         PETSc.Sys.Print(logprint, flush=True)
 
     def setup_direct(self):
+        en_kwargs = {}
         if self.vector:
             phi, tau = TestFunctions(self.Z)
             u, p = split(self.z_h)
@@ -285,7 +288,10 @@ class Solver:
                 - inner(div(u), tau)
             ) * dx - self.F(phi)
             bc = DirichletBC(self.Z.sub(0), self.u_exact, "on_boundary")
-            problem = NonlinearVariationalProblem(F, self.z_h, bcs=bc)
+            if self.direct_use_objective:
+                energy = self.Phi(norm2(Grad(u))) * dx - self.F(u)
+                en_kwargs = {"objective": energy}
+            problem = NonlinearVariationalProblem(F, self.z_h, bcs=bc, **en_kwargs)
             nullspace = MixedVectorSpaceBasis(
                 self.Z,
                 [self.Z.sub(0), VectorSpaceBasis(constant=True, comm=self.Z.comm)],
@@ -293,10 +299,22 @@ class Solver:
         else:
             phi = TestFunction(self.U)
             u = self.u_h
-            F = inner(self.mu(norm2(Grad(u))) * Grad(u), Grad(phi)) * dx - self.F(phi)
+            # mu(r^2)r is 0 when r^2 is zero
+            F = inner(
+                conditional(
+                    gt(norm2(Grad(u)), 0),
+                    self.mu(norm2(Grad(u))) * Grad(u),
+                    0 * Grad(u),
+                ),
+                Grad(phi),
+            ) * dx - self.F(phi)
             bc = DirichletBC(self.U, self.u_exact, "on_boundary")
-            problem = NonlinearVariationalProblem(F, self.u_h, bcs=bc)
+            if self.direct_use_objective:
+                energy = self.Phi(norm2(Grad(u))) * dx - self.F(u)
+                en_kwargs = {"objective": energy}
+            problem = NonlinearVariationalProblem(F, self.u_h, bcs=bc, **en_kwargs)
             nullspace = None
+
         solver_parameters = {
             "pc_type": "lu",
             "pc_factor_mat_solver_type": "mumps",
@@ -427,9 +445,9 @@ class Solver:
                 self.diff_ex_p_h.interpolate(diff_ex_p)
                 outs += (self.diff_ex_p_h,)
 
-        # residual = self.compute_residual_norm(direct=True, res=True)
-        # residual.rename('residual')
-        # outs += (residual, )
+        residual = self.compute_residual_norm(direct=True, rrhs=True)
+        residual.rename("residual")
+        outs += (residual,)
         self.output.write(*outs, time=cnt)
 
     def get_log_data(self, direct=False):
@@ -575,7 +593,7 @@ class Solver:
 
         # Solve the Euler-Lagrange equations of the original problem
         if self.direct:
-            if self.direct > 0:
+            if self.direct_reinit:
                 self.initialize_fields()
             try:
                 if self.vector:

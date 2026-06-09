@@ -60,9 +60,15 @@ dt = opts.getReal("dt", 1.0)  # tau_0
 adaptive_dt = opts.getInt("adaptive_dt", 0)  # use adaptive time stepping
 max_steps = opts.getReal("max_steps", 10)  # number of steps
 atol = opts.getReal("atol", 0)  # absolute tolerance for stopping the iterations
-direct = opts.getInt(
-    "direct", 0
+direct = opts.getBool(
+    "direct", False
 )  # solve the original nonlinear Galerkin problem (aka the direct method)
+direct_reinit = opts.getBool(
+    "direct_reinit", True
+)  # start from the same initialization of the ODE method
+direct_use_objective = opts.getBool(
+    "direct_use_objective", False
+)  # use objective function in SNES
 split = opts.getBool("split", False)  # use the split iteration
 full_step = opts.getBool("full_step", False)  # use the BE iteration if True
 c0_random = opts.getBool("c0_random", False)  # use random initial condition
@@ -71,6 +77,8 @@ sol = {
     "adaptive_dt": adaptive_dt,
     "max_steps": max_steps,
     "direct": direct,
+    "direct_reinit": direct_reinit,
+    "direct_use_objective": direct_use_objective,
     "split": split,
     "full_step": full_step,
     "atol": atol,
